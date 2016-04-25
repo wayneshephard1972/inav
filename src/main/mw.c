@@ -696,6 +696,7 @@ void taskUpdateBattery(void)
             vbatLastServiced = currentTime;
             updateBattery(vbatTimeDelta);
         }
+        updateBatteryMinVoltage(currentTime);
     }
 
     if (feature(FEATURE_CURRENT_METER)) {
