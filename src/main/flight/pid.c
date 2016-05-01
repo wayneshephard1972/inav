@@ -65,8 +65,11 @@ typedef struct {
     float errorGyroIf;
     float errorGyroIfLimit;
 
-    // Axis lock accumulator
+    // Axis lock accumulator (YAW axis)
     float axisLockAccum;
+
+    // Rate+Stabilised accumulator (ROLL/PITCH)
+    float rateStabilisedAccum;
 
     // Used for ANGLE filtering
     filterStatePt1_t angleFilterState;
@@ -99,6 +102,12 @@ void pidResetErrorAccumulators(void)
 
     // Reset yaw heading lock accumulator
     pidState[FD_YAW].axisLockAccum = 0;
+}
+
+void pidSetupRateStabilisedMode(void)
+{
+    pidState[FD_ROLL].rateStabilisedAccum = attitude.raw[FD_ROLL];
+    pidState[FD_PITCH].rateStabilisedAccum = attitude.raw[FD_PITCH];
 }
 
 static float pidRcCommandToAngle(int16_t stick)
@@ -205,13 +214,30 @@ static float calcHorizonLevelStrength(const pidProfile_t *pidProfile, const rxCo
 static void pidLevel(const pidProfile_t *pidProfile, pidState_t *pidState, flight_dynamics_index_t axis, float horizonLevelStrength)
 {
     // This is ROLL/PITCH, run ANGLE/HORIZON controllers
-    const float angleTarget = pidRcCommandToAngle(rcCommand[axis]);
-    const float angleError = (constrain(angleTarget, -pidProfile->max_angle_inclination[axis], +pidProfile->max_angle_inclination[axis]) - attitude.raw[axis]) / 10.0f;
+    float angleTarget;
+
+    if (FLIGHT_MODE(RATE_STAB_MODE)) { // Rate+Stabilised mode - sticks control rate
+        // [rateTarget] = [deg/s]
+        // [angleTarget] = [deg * 10]
+        // [rateStabilisedAccum] = [deg * 10]
+
+        // Integrate stick rate input to yield angle
+        pidState->rateStabilisedAccum += DEGREES_TO_DECIDEGREES(pidState->rateTarget * dT);
+        pidState->rateStabilisedAccum = constrainf(pidState->rateStabilisedAccum, -pidProfile->max_angle_inclination[axis], +pidProfile->max_angle_inclination[axis]);
+        angleTarget = pidState->rateStabilisedAccum;
+    }
+    else {
+        // ANGLE or HORIZON_MODE - target attitude is controlled directly by a stick
+        angleTarget = constrain(pidRcCommandToAngle(rcCommand[axis]), -pidProfile->max_angle_inclination[axis], +pidProfile->max_angle_inclination[axis]);     // [deg*10]
+    }
+
+    // Calculate attitude error; [angleError] = [deg]
+    const float angleError = (angleTarget - attitude.raw[axis]) / 10.0f;
 
     // P[LEVEL] defines self-leveling strength (both for ANGLE and HORIZON modes)
     if (FLIGHT_MODE(HORIZON_MODE)) {
         pidState->rateTarget += angleError * (pidProfile->P8[PIDLEVEL] / FP_PID_LEVEL_P_MULTIPLIER) * horizonLevelStrength;
-    } else {
+    } else { // ANGLE or RATE_STAB mode uses simple angle controller
         pidState->rateTarget = angleError * (pidProfile->P8[PIDLEVEL] / FP_PID_LEVEL_P_MULTIPLIER);
     }
 
@@ -228,7 +254,10 @@ static void pidLevel(const pidProfile_t *pidProfile, pidState_t *pidState, fligh
     //     response to rapid attitude changes and smoothing out self-leveling reaction
     if (pidProfile->I8[PIDLEVEL]) {
         // I8[PIDLEVEL] is filter cutoff frequency (Hz). Practical values of filtering frequency is 5-10 Hz
-        pidState->rateTarget = filterApplyPt1(pidState->rateTarget, &pidState->angleFilterState, pidProfile->I8[PIDLEVEL], dT);
+        // Increase cutoff frequency if angleError is big enough (make response sharper when banging the stick and keep it smooth when adjusting gently)
+        const float cutoffFrequencyMultiplier = 1.0f + (ABS(angleError) / 180.0f * 20.0f);
+        const float cutoffFrequency = constrainf(pidProfile->I8[PIDLEVEL] * cutoffFrequencyMultiplier, 1.0f, 200.0f);
+        pidState->rateTarget = filterApplyPt1(pidState->rateTarget, &pidState->angleFilterState, cutoffFrequency, dT);
     }
 }
 
@@ -302,7 +331,7 @@ void pidController(const pidProfile_t *pidProfile, const controlRateConfig_t *co
     }
 
     // Step 3: Run control for ANGLE_MODE, HORIZON_MODE, and HEADING_LOCK
-    if (FLIGHT_MODE(ANGLE_MODE) || FLIGHT_MODE(HORIZON_MODE)) {
+    if (FLIGHT_MODE(ANGLE_MODE) || FLIGHT_MODE(HORIZON_MODE) || FLIGHT_MODE(RATE_STAB_MODE)) {
         const float horizonLevelStrength = calcHorizonLevelStrength(pidProfile, rxConfig);
         pidLevel(pidProfile, &pidState[FD_ROLL], FD_ROLL, horizonLevelStrength);
         pidLevel(pidProfile, &pidState[FD_PITCH], FD_PITCH, horizonLevelStrength);
