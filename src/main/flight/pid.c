@@ -254,10 +254,7 @@ static void pidLevel(const pidProfile_t *pidProfile, pidState_t *pidState, fligh
     //     response to rapid attitude changes and smoothing out self-leveling reaction
     if (pidProfile->I8[PIDLEVEL]) {
         // I8[PIDLEVEL] is filter cutoff frequency (Hz). Practical values of filtering frequency is 5-10 Hz
-        // Increase cutoff frequency if angleError is big enough (make response sharper when banging the stick and keep it smooth when adjusting gently)
-        const float cutoffFrequencyMultiplier = 1.0f + (ABS(angleError) / 180.0f * 20.0f);
-        const float cutoffFrequency = constrainf(pidProfile->I8[PIDLEVEL] * cutoffFrequencyMultiplier, 1.0f, 200.0f);
-        pidState->rateTarget = filterApplyPt1(pidState->rateTarget, &pidState->angleFilterState, cutoffFrequency, dT);
+        pidState->rateTarget = filterApplyPt1(pidState->rateTarget, &pidState->angleFilterState, pidProfile->I8[PIDLEVEL], dT);
     }
 }
 
