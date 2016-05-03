@@ -72,9 +72,10 @@ typedef struct {
     float rateStabilisedAccum;
 
     // Used for ANGLE filtering
-    filterStatePt1_t angleFilterState;
+    biquad_t angleFilterState;
+    uint8_t angleFilterCutoff;
 
-    // Rate filtering
+    // Rate D-term filtering
     biquad_t deltaBiQuadState;
     bool deltaFilterInit;
 } pidState_t;
@@ -254,7 +255,13 @@ static void pidLevel(const pidProfile_t *pidProfile, pidState_t *pidState, fligh
     //     response to rapid attitude changes and smoothing out self-leveling reaction
     if (pidProfile->I8[PIDLEVEL]) {
         // I8[PIDLEVEL] is filter cutoff frequency (Hz). Practical values of filtering frequency is 5-10 Hz
-        pidState->rateTarget = filterApplyPt1(pidState->rateTarget, &pidState->angleFilterState, pidProfile->I8[PIDLEVEL], dT);
+        if (pidState->angleFilterCutoff != pidProfile->I8[PIDLEVEL]) {
+            // Re-initialize filter if LEVEL_I changes (tuning without power-cycling)
+            pidState->angleFilterCutoff = pidProfile->I8[PIDLEVEL];
+            filterInitBiQuad(pidState->angleFilterCutoff, &pidState->angleFilterState, 0);
+        }
+
+        pidState->rateTarget = filterApplyBiQuad(pidState->rateTarget, &pidState->angleFilterState);
     }
 }
 
