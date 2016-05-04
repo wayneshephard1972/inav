@@ -1313,16 +1313,17 @@ void updateActualHorizontalPositionAndVelocity(bool hasValidSensor, float newX, 
 
     posControl.actualState.vel.V.X = newVelX;
     posControl.actualState.vel.V.Y = newVelY;
+    posControl.actualState.velXY = sqrtf(sq(newVelX) + sq(newVelY));
 
     posControl.flags.hasValidPositionSensor = hasValidSensor;
     posControl.flags.hasValidHeadingSensor = isImuHeadingValid();
 
     if (hasValidSensor) {
-        posControl.flags.horizontalPositionNewData = 1;
+        posControl.flags.horizontalPositionDataNew = 1;
         posControl.lastValidPositionTimeMs = millis();
     }
     else {
-        posControl.flags.horizontalPositionNewData = 0;
+        posControl.flags.horizontalPositionDataNew = 0;
     }
 
 #if defined(NAV_BLACKBOX)
@@ -1346,11 +1347,11 @@ void updateActualAltitudeAndClimbRate(bool hasValidSensor, float newAltitude, fl
     // Update altitude that would be used when executing RTH
     if (hasValidSensor) {
         updateDesiredRTHAltitude();
-        posControl.flags.verticalPositionNewData = 1;
+        posControl.flags.verticalPositionDataNew = 1;
         posControl.lastValidAltitudeTimeMs = millis();
     }
     else {
-        posControl.flags.verticalPositionNewData = 0;
+        posControl.flags.verticalPositionDataNew = 0;
     }
 
 #if defined(NAV_BLACKBOX)
@@ -1384,10 +1385,10 @@ void updateActualSurfaceDistance(bool hasValidSensor, float surfaceDistance, flo
     posControl.flags.hasValidSurfaceSensor = hasValidSensor;
 
     if (hasValidSensor) {
-        posControl.flags.surfaceDistanceNewData = 1;
+        posControl.flags.surfaceDistanceDataNew = 1;
     }
     else {
-        posControl.flags.surfaceDistanceNewData = 0;
+        posControl.flags.surfaceDistanceDataNew = 0;
     }
 
 #if defined(NAV_BLACKBOX)
@@ -1407,7 +1408,7 @@ void updateActualHeading(int32_t newHeading)
     posControl.actualState.sinYaw = sin_approx(CENTIDEGREES_TO_RADIANS(newHeading));
     posControl.actualState.cosYaw = cos_approx(CENTIDEGREES_TO_RADIANS(newHeading));
 
-    posControl.flags.headingNewData = 1;
+    posControl.flags.headingDataNew = 1;
 }
 
 /*-----------------------------------------------------------
@@ -1974,6 +1975,10 @@ void applyWaypointNavigationAndAltitudeHold(void)
         return;
     }
 
+    /* Reset flags */
+    posControl.flags.horizontalPositionDataConsumed = 0;
+    posControl.flags.verticalPositionDataConsumed = 0;
+
     /* Process controllers */
     navigationFSMStateFlags_t navStateFlags = navGetStateFlags(posControl.navState);
     if (STATE(FIXED_WING)) {
@@ -1982,6 +1987,14 @@ void applyWaypointNavigationAndAltitudeHold(void)
     else {
         applyMulticopterNavigationController(navStateFlags, currentTime);
     }
+
+    /* Consume position data */
+    if (posControl.flags.horizontalPositionDataConsumed)
+        posControl.flags.horizontalPositionDataNew = 0;
+
+    if (posControl.flags.verticalPositionDataConsumed)
+        posControl.flags.verticalPositionDataNew = 0;
+
 
 #if defined(NAV_BLACKBOX)
     if (posControl.flags.isAdjustingPosition)       navFlags |= (1 << 5);
@@ -2016,6 +2029,8 @@ static bool canActivatePosHoldMode(void)
 
 static navigationFSMEvent_t selectNavEventFromBoxModeInput(void)
 {
+    static bool canActivateWaypoint = false;
+
     //We can switch modes only when ARMED
     if (ARMING_FLAG(ARMED)) {
         // Flags if we can activate certain nav modes (check if we have required sensors and they provide valid data)
@@ -2026,17 +2041,23 @@ static navigationFSMEvent_t selectNavEventFromBoxModeInput(void)
         if (posControl.flags.forcedRTHActivated || IS_RC_MODE_ACTIVE(BOXNAVRTH)) {
             // If we request forced RTH - attempt to activate it no matter what
             // This might switch to emergency landing controller if GPS is unavailable
+            canActivateWaypoint = false;    // Block WP mode if we switched to RTH for whatever reason
             return NAV_FSM_EVENT_SWITCH_TO_RTH;
         }
 
         // PASSTHRU mode has priority over WP/PH/AH
         if (IS_RC_MODE_ACTIVE(BOXPASSTHRU)) {
+            canActivateWaypoint = false;    // Block WP mode if we are in PASSTHROUGH mode
             return NAV_FSM_EVENT_SWITCH_TO_IDLE;
         }
 
         if (IS_RC_MODE_ACTIVE(BOXNAVWP)) {
-            if ((FLIGHT_MODE(NAV_WP_MODE)) || (canActivatePosHold && canActivateAltHold && STATE(GPS_FIX_HOME) && ARMING_FLAG(ARMED) && posControl.waypointListValid && (posControl.waypointCount > 0)))
+            if ((FLIGHT_MODE(NAV_WP_MODE)) || (canActivateWaypoint && canActivatePosHold && canActivateAltHold && STATE(GPS_FIX_HOME) && ARMING_FLAG(ARMED) && posControl.waypointListValid && (posControl.waypointCount > 0)))
                 return NAV_FSM_EVENT_SWITCH_TO_WAYPOINT;
+        }
+        else {
+            // Arm the state variable if the WP BOX mode is not enabled
+            canActivateWaypoint = true;
         }
 
         if (IS_RC_MODE_ACTIVE(BOXNAVPOSHOLD) && IS_RC_MODE_ACTIVE(BOXNAVALTHOLD)) {
@@ -2053,6 +2074,9 @@ static navigationFSMEvent_t selectNavEventFromBoxModeInput(void)
             if ((FLIGHT_MODE(NAV_ALTHOLD_MODE)) || (canActivateAltHold))
                 return NAV_FSM_EVENT_SWITCH_TO_ALTHOLD;
         }
+    }
+    else {
+        canActivateWaypoint = false;
     }
 
     return NAV_FSM_EVENT_SWITCH_TO_IDLE;
@@ -2080,7 +2104,8 @@ bool naivationRequiresAngleMode(void)
  */
 int8_t naivationGetHeadingControlState(void)
 {
-    if (navGetStateFlags(posControl.navState) & NAV_REQUIRE_MAGHOLD) {
+    // No explicit MAG_HOLD mode for airplanes
+    if ((navGetStateFlags(posControl.navState) & NAV_REQUIRE_MAGHOLD) && !STATE(FIXED_WING)) {
         if (posControl.flags.isAdjustingHeading) {
             return NAV_HEADING_CONTROL_MANUAL;
         }
@@ -2249,10 +2274,10 @@ void navigationInit(navConfig_t *initialnavConfig,
     /* Initial state */
     posControl.navState = NAV_STATE_IDLE;
 
-    posControl.flags.horizontalPositionNewData = 0;
-    posControl.flags.verticalPositionNewData = 0;
-    posControl.flags.surfaceDistanceNewData = 0;
-    posControl.flags.headingNewData = 0;
+    posControl.flags.horizontalPositionDataNew = 0;
+    posControl.flags.verticalPositionDataNew = 0;
+    posControl.flags.surfaceDistanceDataNew = 0;
+    posControl.flags.headingDataNew = 0;
 
     posControl.flags.hasValidAltitudeSensor = 0;
     posControl.flags.hasValidPositionSensor = 0;
