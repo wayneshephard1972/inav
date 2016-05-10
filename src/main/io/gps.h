@@ -38,7 +38,8 @@ typedef enum {
     SBAS_EGNOS,
     SBAS_WAAS,
     SBAS_MSAS,
-    SBAS_GAGAN
+    SBAS_GAGAN,
+    SBAS_NONE
 } sbasMode_e;
 
 #define SBAS_MODE_MAX SBAS_GAGAN
