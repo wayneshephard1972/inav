@@ -70,7 +70,7 @@ typedef struct {
     float axisLockAccum;
 
     // Used for ANGLE filtering
-    filterStatePt1_t angleFilterState;
+    filterStatePt1_t rateTargetFilterState;
 
     // Rate filtering
     filterStatePt1_t ptermLpfState;
@@ -232,7 +232,7 @@ static void pidLevel(const pidProfile_t *pidProfile, pidState_t *pidState, fligh
     //     response to rapid attitude changes and smoothing out self-leveling reaction
     if (pidProfile->I8[PIDLEVEL]) {
         // I8[PIDLEVEL] is filter cutoff frequency (Hz). Practical values of filtering frequency is 5-10 Hz
-        pidState->rateTarget = filterApplyPt1(pidState->rateTarget, &pidState->angleFilterState, pidProfile->I8[PIDLEVEL], dT);
+        pidState->rateTarget = filterApplyPt1(pidState->rateTarget, &pidState->rateTargetFilterState, pidProfile->I8[PIDLEVEL], dT);
     }
 }
 
@@ -395,6 +395,8 @@ float pidMagHold(const pidProfile_t *pidProfile)
     return magHoldRate;
 }
 
+#define YAW_ANGULAR_ACCELERATION_LIMIT      1800.0f      // Reach 180dps in 0.1 second (very optimistic)
+
 void pidController(const pidProfile_t *pidProfile, const controlRateConfig_t *controlRateConfig, const rxConfig_t *rxConfig)
 {
 
@@ -431,6 +433,9 @@ void pidController(const pidProfile_t *pidProfile, const controlRateConfig_t *co
     if (FLIGHT_MODE(HEADING_LOCK) && magHoldState != MAG_HOLD_ENABLED) {
         pidApplyHeadingLock(pidProfile, &pidState[FD_YAW]);
     }
+
+    // Step 4: Apply smoothing and acceleration limiting to Yaw rateTarget
+    pidState[FD_YAW].rateTarget = filterApplyPt1WithRateLimit(pidState[FD_YAW].rateTarget, &pidState[FD_YAW].rateTargetFilterState, 0, YAW_ANGULAR_ACCELERATION_LIMIT, dT);
 
     // Step 4: Run gyro-driven control
     for (int axis = 0; axis < 3; axis++) {
