@@ -68,7 +68,6 @@ void pwmServoConfig(const timerHardware_t *timerHardware, uint8_t servoIndex, ui
     PWM11.14 used for servos
 */
 
-
 static const uint16_t * const hardwareMaps[] = {
     multiPWM,
     multiPPM,
