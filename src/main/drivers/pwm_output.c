@@ -24,12 +24,14 @@
 
 #include "gpio.h"
 #include "timer.h"
+#include "debug.h"
 
 #include "flight/failsafe.h" // FIXME dependency into the main code from a driver
 
 #include "pwm_mapping.h"
 
 #include "pwm_output.h"
+#include "drivers/io_pca9685.h"
 
 #if (MAX_MOTORS > MAX_SERVOS)
 #define MAX_PWM_OUTPUT_PORTS MAX_MOTORS
@@ -221,7 +223,19 @@ void pwmServoConfig(const timerHardware_t *timerHardware, uint8_t servoIndex, ui
 
 void pwmWriteServo(uint8_t index, uint16_t value)
 {
-    if (servos[index] && index < MAX_SERVOS)
+
+#ifdef USE_PCA9685
+
+    if (isPca9685Enabled()) {
+        pca9685setServoPulse(index, value);
+    } else if (servos[index] && index < MAX_SERVOS) {
         *servos[index]->ccr = value;
+    }
+
+#else
+    if (servos[index] && index < MAX_SERVOS) {
+        *servos[index]->ccr = value;
+    }
+#endif
 }
 #endif

@@ -57,8 +57,6 @@
 #include "drivers/compass_ak8975.h"
 #include "drivers/compass_mag3110.h"
 
-#include "drivers/io_pca9685.h"
-
 #include "drivers/sonar_hcsr04.h"
 #include "drivers/sonar_srf10.h"
 
@@ -815,8 +813,6 @@ bool sensorsAutodetect(sensorAlignmentConfig_t *sensorAlignmentConfig, uint8_t g
     const rangefinderType_e rangefinderType = detectRangefinder();
     rangefinderInit(rangefinderType);
 #endif
-
-    pca9685Detect();
 
     return true;
 }
