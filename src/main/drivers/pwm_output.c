@@ -32,6 +32,8 @@
 
 #include "pwm_output.h"
 #include "drivers/io_pca9685.h"
+#include "config/config.h"
+#include "config/runtime_config.h"
 
 #if (MAX_MOTORS > MAX_SERVOS)
 #define MAX_PWM_OUTPUT_PORTS MAX_MOTORS
@@ -226,7 +228,7 @@ void pwmWriteServo(uint8_t index, uint16_t value)
 
 #ifdef USE_PCA9685
 
-    if (isPca9685Enabled()) {
+    if (feature(FEATURE_PWM_SERVO_DRIVER)) {
         pca9685setServoPulse(index, value);
     } else if (servos[index] && index < MAX_SERVOS) {
         *servos[index]->ccr = value;

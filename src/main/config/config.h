@@ -46,6 +46,7 @@ typedef enum {
     FEATURE_CHANNEL_FORWARDING = 1 << 20,
     FEATURE_RX_NRF24 = 1 << 21,
     FEATURE_SOFTSPI = 1 << 22,
+    FEATURE_PWM_SERVO_DRIVER = 1 << 23
 } features_e;
 
 void handleOneshotFeatureChangeOnRestart(void);
