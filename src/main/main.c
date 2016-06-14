@@ -587,6 +587,10 @@ int main(void) {
     setTaskEnabled(TASK_LEDSTRIP, feature(FEATURE_LED_STRIP));
 #endif
 
+#ifdef USE_PCA9685
+    setTaskEnabled(TASK_PWMDRIVER, feature(FEATURE_PWM_SERVO_DRIVER));
+#endif
+
     while (1) {
         scheduler();
         processLoopback();

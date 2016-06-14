@@ -481,12 +481,6 @@ void processRx(void)
     }
 #endif
 
-#ifdef USE_PCA9685
-    if (feature(FEATURE_PWM_SERVO_DRIVER)) {
-        pca9685sync(currentTime);
-    }
-#endif
-
 }
 
 void filterRc(bool isRXDataNew)
@@ -633,6 +627,7 @@ void taskMainPidLoop(void)
         handleBlackbox();
     }
 #endif
+
 }
 
 // Function for loop trigger
@@ -772,6 +767,15 @@ void taskLedStrip(void)
 {
     if (feature(FEATURE_LED_STRIP)) {
         updateLedStrip();
+    }
+}
+#endif
+
+#ifdef USE_PCA9685
+void taskSyncPwmDriver(void) {
+
+    if (feature(FEATURE_PWM_SERVO_DRIVER)) {
+        pca9685sync();
     }
 }
 #endif
